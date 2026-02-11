@@ -1,69 +1,201 @@
-# User lookup and cache exercise
+# User Lookup API with LRU Cache, Request Dedup and Rate Limiting (take-home)
 
-An Express/TypeScript API demonstrating an in-memory LRU cache, concurrent-request sharing, a serial processing queue, and per-IP throttling. The “database” is three synthetic users in `src/data/mockUsers.ts`; a 200 ms timer simulates lookup work. No database or external service is required.
+A backend take-home exercise: a small Express 5 / TypeScript API that serves user records through an in-memory LRU cache with a TTL, shares concurrent lookups for the same user, funnels cache misses through a bounded serial queue, and throttles each client with a token bucket plus a burst window.
 
-## Why the pieces are separate
+The "database" is three synthetic users in `src/data/mockUsers.ts`, and a 200 ms timer stands in for lookup latency. Nothing external is needed to run it: no database, no API keys, no `.env` file.
+
+## How a request flows
 
 ```mermaid
 flowchart LR
-  Request --> Rate[Per-IP token budget and burst window]
-  Rate --> Cache[LRU cache with TTL]
-  Cache -->|miss| Pending[Share existing same-user promise]
-  Pending --> Queue[Serial queue]
-  Queue --> Mock[Synthetic users and 200 ms delay]
-  Mock --> Cache
+  Client --> Limiter["Rate limiter<br/>10 per 60 s + 5 per 10 s"]
+  Limiter -->|429 + Retry-After| Client
+  Limiter --> Cache["LRU cache<br/>1,000 entries, 60 s TTL"]
+  Cache -->|hit: X-Cache HIT| Client
+  Cache -->|miss| Dedup["In-flight map<br/>one promise per user ID"]
+  Dedup --> Queue["Serial queue<br/>max 100 waiting"]
+  Queue -->|full: 503 + Retry-After| Client
+  Queue --> Store["Synthetic users<br/>200 ms delay"]
+  Store --> Cache
 ```
 
-The cache uses a map plus a linked list for recency updates and eviction. Its default capacity is 1,000 entries and TTL is 60 seconds. A hit changes recency but does not extend expiry. Lazy reads expire at the exact TTL; a ten-second maintenance timer removes stale entries without keeping an otherwise idle process alive.
+- **Cache** (`src/dal/cache.dal.ts`): a `Map` plus a doubly linked list, so reads and writes are O(1). `get()` promotes the entry; when full, the least recently *read or written* entry is evicted. Entries expire at exactly the TTL (60 s by default), and a hit does not extend it. A 10 s sweep removes expired entries without keeping the process alive.
+- **Request deduplication** (`src/dal/requestDeduplicator.dal.ts`): concurrent misses for the same ID share one promise, and the entry is removed whether the lookup resolves or rejects, so a failed lookup is retried next time. If `DELETE /cache` runs while a lookup is in flight, that lookup's result is not written back into the cleared cache.
+- **Queue** (`src/dal/queue.dal.ts`): misses for different IDs are processed one at a time. It keeps the event loop free while waiting, but it is not parallel and not durable. At most 100 lookups can wait; past that the API answers 503 rather than letting memory grow.
+- **Rate limiter** (`src/middleware/rateLimiter.ts`): see [Rate limiting](#rate-limiting).
 
-Concurrent misses for the same user share one promise. Distinct users wait in a single serial queue: it avoids blocking the event loop while waiting, but it is not parallel work or a durable background-job system. Restarting the server loses users created during the session, cache contents, pending work, and rate-limit state.
+## Running it
 
-## Run and check
-
-Use Node.js 22 and pnpm 9:
+Requires Node.js 22 (`.nvmrc`) and pnpm 12, which Corepack installs from the `packageManager` field:
 
 ```sh
-pnpm install --frozen-lockfile --ignore-scripts
-pnpm dev
-# Or:
+corepack enable
+pnpm install --frozen-lockfile
 pnpm build
-pnpm start
+pnpm start          # http://127.0.0.1:3001
 ```
 
-The API binds to `127.0.0.1:3001`. `PORT` overrides the port and `FRONTEND_ORIGIN` overrides the permitted browser origin (default `http://localhost:3000`). There are no private keys or required environment files. Keep this local: cache management and user creation have no authentication.
+`pnpm dev` runs the TypeScript source with reload instead of building.
+
+Or with Docker (the image runs as the unprivileged `node` user and has a health check):
 
 ```sh
-pnpm test
-pnpm build
-pnpm lint
+docker build -t user-lookup-api .
+docker run --rm -p 3001:3001 user-lookup-api
 ```
 
-Four Node test groups pass: exact cache expiry/LRU eviction, concurrent same-user deduplication and recovery after a failed lookup, real local HTTP validation/cache hits, and clock-controlled throttling including spoofed forwarding headers. TypeScript compilation and ESLint pass. No external database, provider, or benchmark service was used. The 200 ms lookup delay is a simulation, not a measured production performance claim.
+All settings are optional; `.env.example` lists them with their defaults:
 
-## HTTP contract
-
-| Method | Route | Result |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| GET | `/health` | `{ "status": "ok" }`, outside the limiter |
-| GET | `/users/:id` | Synthetic/current-session user; positive whole ID required |
-| POST | `/users` | Create in-memory user from bounded `name` and `email`; 201 |
-| GET | `/cache/status` | Hits, misses, size, and average stored miss duration |
-| DELETE | `/cache` | Clear entries and statistics |
+| `PORT` | `3001` | Listening port |
+| `HOST` | `127.0.0.1` (`0.0.0.0` in the image) | Bind address |
+| `FRONTEND_ORIGIN` | `http://localhost:3000` | The one origin allowed by CORS |
+| `TRUST_PROXY` | `false` | Express `trust proxy`: a hop count (`1`) or address list (`loopback`, `10.0.0.0/8`). Set it only behind a real reverse proxy |
 
-Example lookup: `GET /users/1` returns:
+There is no authentication on any route, including cache clearing and user creation, so keep it on a private network.
 
-```json
+## API
+
+| Method | Route | Response |
+| --- | --- | --- |
+| GET | `/health` | `200 {"status":"ok"}`, not rate limited |
+| GET | `/users/:id` | `200` user, `400` if the ID is not a positive whole number, `404` if unknown, `503` if the queue is full |
+| POST | `/users` | `201` user created from JSON `{ "name", "email" }`; `400` on invalid input, `413` over 16 KB, `503` once 10,000 users exist |
+| GET | `/cache/status` | Hits, misses, size and the average duration of recent cache fills (ms) |
+| DELETE | `/cache` | Empties the cache and resets its statistics |
+
+Errors are always JSON with an `error` field, including malformed JSON bodies and unknown routes.
+
+### Example session
+
+Captured from the Docker image with `curl -i` (date, connection and CORS headers trimmed). Two reads of the same user show the cache miss and then the hit:
+
+```http
+GET /users/1
+
+HTTP/1.1 200 OK
+RateLimit-Policy: 10;w=60, 5;w=10
+RateLimit-Limit: 5
+RateLimit-Remaining: 4
+X-Cache: MISS
+Content-Type: application/json; charset=utf-8
+
 {"id":1,"name":"John Doe","email":"john@example.com"}
 ```
 
-`averageResponseTime` measures recent completed cache-fill/queue durations, not all HTTP requests or hits. Concurrent callers can each count as misses while still sharing one underlying queue request. A clear request does not cancel already queued work, which can subsequently repopulate the cache.
+```http
+GET /users/1
 
-## Rate-limit semantics
+HTTP/1.1 200 OK
+RateLimit-Policy: 10;w=60, 5;w=10
+RateLimit-Limit: 5
+RateLimit-Remaining: 3
+X-Cache: HIT
+Content-Type: application/json; charset=utf-8
 
-Accepted requests debit both a ten-token bucket (refilling one token every six seconds) and a five-request fixed ten-second burst window. This is a sustained ten-per-minute token budget with an initial allowance, **not** a strict rolling ten-request minute or sliding burst window. Responses include `Retry-After` seconds and JSON `retryAfter`.
+{"id":1,"name":"John Doe","email":"john@example.com"}
+```
 
-Client-supplied `X-Forwarded-For` no longer selects a bucket: Express's untrusted-proxy default uses the connection IP. A real reverse proxy needs an explicit trusted-proxy design before deployment. Idle IP buckets expire after five minutes and the map is capped at 10,000 identities. All user/cache routes share the limiter; a UI should refresh cache statistics deliberately rather than poll continuously and consume the same allowance.
+Validation, then the cache statistics (`averageResponseTime` is the 200 ms simulated delay plus overhead):
 
-## Remaining engineering limits
+```http
+GET /users/abc
 
-The queue and created-user store are unbounded, work is process-local, queued requests cannot be cancelled, and cache clear has no in-flight generation barrier. There is no persistence, distributed consistency, email uniqueness check, credential system, or load test. Add resource limits and access rules before exposing writes; use measured concurrency to decide whether an external queue/cache would help. This is an API exercise, so the diagram, contract, and tests explain it more directly than a fabricated dashboard screenshot.
+HTTP/1.1 400 Bad Request
+RateLimit-Remaining: 2
+
+{"error":"Invalid user ID","message":"User ID must be a positive whole number"}
+```
+
+```http
+GET /cache/status
+
+HTTP/1.1 200 OK
+RateLimit-Remaining: 1
+
+{"hits":1,"misses":1,"size":1,"averageResponseTime":208}
+```
+
+The fifth request inside ten seconds still succeeds; the sixth is refused:
+
+```http
+GET /users/2
+
+HTTP/1.1 200 OK
+RateLimit-Remaining: 0
+X-Cache: MISS
+
+{"id":2,"name":"Jane Smith","email":"jane@example.com"}
+```
+
+```http
+GET /users/3
+
+HTTP/1.1 429 Too Many Requests
+RateLimit-Policy: 10;w=60, 5;w=10
+RateLimit-Limit: 5
+RateLimit-Remaining: 0
+Retry-After: 10
+
+{"error":"Rate limit exceeded","retryAfter":10}
+```
+
+Eleven seconds later the burst window has reset:
+
+```http
+POST /users
+Content-Type: application/json
+
+{"name":"Grace Hopper","email":"grace@example.com"}
+
+HTTP/1.1 201 Created
+RateLimit-Remaining: 4
+
+{"id":4,"name":"Grace Hopper","email":"grace@example.com"}
+```
+
+```http
+GET /users/99
+
+HTTP/1.1 404 Not Found
+RateLimit-Remaining: 3
+
+{"error":"User not found","message":"User with ID 99 not found"}
+```
+
+## Rate limiting
+
+Every accepted request spends from two allowances per client, and both must have room:
+
+- a **token bucket** of 10 that refills one token every 6 s (10 per minute sustained), and
+- a **fixed burst window** of 5 requests per 10 s, starting at the first request after the previous window ended.
+
+So this is a ten-per-minute budget with a five-request burst cap, not a sliding window. `RateLimit-Policy` describes both, `RateLimit-Limit`/`RateLimit-Remaining` report the tighter of the two, and a `429` carries `Retry-After` with the longer of the two waits. Browsers on `FRONTEND_ORIGIN` can read these headers and `X-Cache` through CORS.
+
+**Which client is which.** The key is `req.ip`. With `TRUST_PROXY` unset Express ignores `X-Forwarded-For`, so a caller cannot dodge the limit by rotating that header. The flip side: behind a reverse proxy, or when Docker publishes the port, every caller arrives from the same address and shares one bucket. Set `TRUST_PROXY` to the number of proxy hops (or the proxy's address) in that case, and never to `true` on a port clients reach directly.
+
+**Memory.** A bucket idle for 60 s is back to full, so it is dropped then. Buckets are kept in last-use order, so pruning only touches idle ones. At most 10,000 clients are tracked; new clients beyond that get a `429` with `Retry-After: 60` until older ones go idle.
+
+## Tests and checks
+
+```sh
+pnpm test        # 19 node:test cases across 7 files, run with tsx
+pnpm typecheck   # tsc over src and tests
+pnpm lint        # ESLint 10 flat config with typescript-eslint
+pnpm build
+```
+
+The tests use `node:test` mock timers and an injectable clock rather than real waiting. They cover TTL expiry one millisecond either side of the boundary, LRU promotion on `get()`, deduplicated lookups and recovery after a rejected one, the clear-during-lookup race, the queue and user-store bounds, Retry-After arithmetic, bucket pruning, `X-Forwarded-For` with and without `TRUST_PROXY`, the JSON 400/404/413 error paths, and the cache and rate-limit headers over real HTTP.
+
+## Limits
+
+This was scoped as an exercise, and it stays one:
+
+- Everything is process-local and in memory. A restart loses created users, cache contents, queued work and rate-limit state, and running more than one instance would give each its own cache and limits.
+- Queued lookups cannot be cancelled. `averageResponseTime` measures recent cache fills, not all HTTP requests, and each concurrent caller that shares a lookup still counts as a miss.
+- There is no authentication, no email uniqueness check, and no load testing; the 200 ms delay is simulated, not measured.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
