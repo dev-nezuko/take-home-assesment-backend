@@ -39,7 +39,7 @@ test('created users get sequential IDs and the store stops at MAX_USERS with a 5
   assert.throws(() => addUser('Overflow', 'overflow@example.com'), CapacityError);
   assert.equal(Object.keys(mockUsers).length, MAX_USERS);
 
-  await withServer(createApp(allowAll), async (base) => {
+  await withServer(createApp({ limiter: allowAll }), async (base) => {
     const res = await fetch(base + '/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

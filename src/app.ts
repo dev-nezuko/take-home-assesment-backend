@@ -4,8 +4,26 @@ import { rateLimiter } from './middleware/rateLimiter.js';
 import userRoutes from './routes/user.route.js';
 import cacheRoutes from './routes/cache.route.js';
 
-export function createApp(limiter: RequestHandler = rateLimiter): Express {
+// TRUST_PROXY: unset/"false" ignores X-Forwarded-For; a hop count ("1") or an address list
+// ("loopback", "10.0.0.0/8") trusts only those proxies. Never "true" on a directly exposed port.
+export function parseTrustProxy(value: string | undefined): boolean | number | string {
+  if (!value || value === 'false') return false;
+  if (value === 'true') return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+}
+
+interface AppOptions {
+  limiter?: RequestHandler;
+  trustProxy?: boolean | number | string;
+}
+
+export function createApp({
+  limiter = rateLimiter,
+  trustProxy = parseTrustProxy(process.env.TRUST_PROXY),
+}: AppOptions = {}): Express {
   const app = express();
+  app.set('trust proxy', trustProxy);
 
   app.use(cors({ origin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000' }));
   app.use(express.json({ limit: '16kb' }));

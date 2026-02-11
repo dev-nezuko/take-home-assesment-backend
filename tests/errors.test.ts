@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert';
 import { createApp } from '../src/app.js';
 import { allowAll, withServer } from './helpers.js';
 
-const app = createApp(allowAll);
+const app = createApp({ limiter: allowAll });
 
 test('unknown user IDs are 404 and malformed IDs are 400', async () => {
   await withServer(app, async (base) => {
