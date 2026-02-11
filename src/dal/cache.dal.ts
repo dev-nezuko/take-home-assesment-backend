@@ -110,12 +110,7 @@ export class LRUCache {
         ttl: this.ttl,
       };
       this.moveToHead(existingNode);
-      if (responseTime !== undefined) {
-        this.responseTimes.push(responseTime);
-        if (this.responseTimes.length > 100) {
-          this.responseTimes.shift();
-        }
-      }
+      this.recordResponseTime(responseTime);
       return;
     }
 
@@ -134,13 +129,14 @@ export class LRUCache {
     const newNode = this.createNode(key, entry);
     this.addToHead(newNode);
     this.cache.set(key, newNode);
+    this.recordResponseTime(responseTime);
+  }
 
-    if (responseTime !== undefined) {
-      this.responseTimes.push(responseTime);
-      if (this.responseTimes.length > 100) {
-        this.responseTimes.shift();
-      }
-    }
+  // Keeps a rolling window of the last 100 fill durations for getStats().
+  private recordResponseTime(responseTime: number | undefined): void {
+    if (responseTime === undefined) return;
+    this.responseTimes.push(responseTime);
+    if (this.responseTimes.length > 100) this.responseTimes.shift();
   }
 
   delete(key: string): boolean {

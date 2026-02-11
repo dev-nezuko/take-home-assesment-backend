@@ -17,13 +17,6 @@ export interface CacheEntry<T> {
   ttl: number;
 }
 
-export interface RateLimitConfig {
-  maxRequests: number;
-  windowMs: number;
-  burstCapacity: number;
-  burstWindowMs: number;
-}
-
 export interface QueueItem {
   userId: number;
   resolve: (value: User) => void;
