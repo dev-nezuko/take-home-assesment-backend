@@ -21,7 +21,9 @@ export async function getUserById(
   }
 
   try {
-    res.json(await getOrFetchUser(userId));
+    const { user, cacheHit } = await getOrFetchUser(userId);
+    res.setHeader('X-Cache', cacheHit ? 'HIT' : 'MISS');
+    res.json(user);
   } catch (error) {
     if (error instanceof UserNotFoundError) {
       res.status(404).json({ error: 'User not found', message: error.message });

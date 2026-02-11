@@ -49,7 +49,7 @@ test('a lookup that finishes after DELETE /cache does not repopulate the cleared
     await advance(100);
     cache.clear();
     await advance(100);
-    assert.equal((await inFlight).id, 1);
+    assert.equal((await inFlight).user.id, 1);
     assert.equal(cache.getStats().size, 0);
 
     const fresh = getOrFetchUser(1);

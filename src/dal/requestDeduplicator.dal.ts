@@ -4,15 +4,20 @@ import { cache } from './cache.dal.js';
 
 const pendingRequests = new Map<number, Promise<User>>();
 
-export async function getOrFetchUser(userId: number): Promise<User> {
+export interface UserLookup {
+  user: User;
+  cacheHit: boolean;
+}
+
+export async function getOrFetchUser(userId: number): Promise<UserLookup> {
   const cached = cache.get(`user:${userId}`);
   if (cached) {
-    return cached;
+    return { user: cached, cacheHit: true };
   }
 
   const pending = pendingRequests.get(userId);
   if (pending) {
-    return pending;
+    return { user: await pending, cacheHit: false };
   }
 
   const requestPromise = (async () => {
@@ -33,5 +38,5 @@ export async function getOrFetchUser(userId: number): Promise<User> {
 
   pendingRequests.set(userId, requestPromise);
 
-  return requestPromise;
+  return { user: await requestPromise, cacheHit: false };
 }

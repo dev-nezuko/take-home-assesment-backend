@@ -5,6 +5,8 @@ const TOKEN_REFILL_MS = 6000;
 const BURST_CAPACITY = 5;
 const BURST_WINDOW_MS = 10000;
 const MAX_TRACKED_CLIENTS = 10000;
+// Advertised as RateLimit-Policy: 10 per 60 s sustained, 5 per 10 s burst.
+const POLICY = `${TOKEN_CAPACITY};w=${(TOKEN_CAPACITY * TOKEN_REFILL_MS) / 1000}, ${BURST_CAPACITY};w=${BURST_WINDOW_MS / 1000}`;
 // After this long without requests a bucket is full again and its burst window has lapsed,
 // so it is indistinguishable from a new one and can be dropped.
 const IDLE_RESET_MS = Math.max(TOKEN_CAPACITY * TOKEN_REFILL_MS, BURST_WINDOW_MS);
@@ -56,12 +58,17 @@ export function createRateLimiter(now: () => number = Date.now) {
       bucket.burstStart = time;
     }
 
+    res.setHeader('RateLimit-Policy', POLICY);
+    res.setHeader('RateLimit-Limit', String(BURST_CAPACITY));
     if (bucket.tokens >= 1 && bucket.burst >= 1) {
       bucket.tokens--;
       bucket.burst--;
+      res.setHeader('RateLimit-Remaining', String(Math.floor(Math.min(bucket.tokens, bucket.burst))));
       next();
       return;
     }
+
+    res.setHeader('RateLimit-Remaining', '0');
 
     const tokenWait = bucket.tokens < 1 ? (1 - bucket.tokens) * TOKEN_REFILL_MS : 0;
     const burstWait = bucket.burst < 1 ? BURST_WINDOW_MS - (time - bucket.burstStart) : 0;
