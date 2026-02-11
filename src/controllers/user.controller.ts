@@ -6,9 +6,9 @@ import { User } from '../types/index.js';
 
 export async function getUserById(req: Request, res: Response): Promise<void> {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = Number(req.params.id);
 
-    if (isNaN(userId)) {
+    if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(userId) || userId <= 0) {
       res.status(400).json({
         error: 'Invalid user ID',
         message: 'User ID must be a valid number',
@@ -47,7 +47,7 @@ export async function createUser(req: Request, res: Response): Promise<void> {
   try {
     const { name, email } = req.body;
 
-    if (!name || !email) {
+    if (typeof name !== "string" || !name.trim() || name.length > 120 || typeof email !== "string" || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       res.status(400).json({
         error: 'Validation error',
         message: 'Name and email are required',
@@ -60,15 +60,15 @@ export async function createUser(req: Request, res: Response): Promise<void> {
 
     const newUser: User = {
       id: newId,
-      name: String(name),
-      email: String(email),
+      name: name.trim(),
+      email: email.trim(),
     };
 
     mockUsers[newId] = newUser;
     cache.set(`user:${newId}`, newUser);
 
     res.status(201).json(newUser);
-  } catch (error) {
+  } catch {
     res.status(500).json({
       error: 'Internal server error',
       message: 'An error occurred while creating the user',

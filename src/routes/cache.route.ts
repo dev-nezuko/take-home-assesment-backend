@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { clearCache, getCacheStatus } from '../controllers/cache.controller.js';
 
-const router = Router();
+const router: Router = Router();
 
 router.delete('/', clearCache);
 router.get('/status', getCacheStatus);

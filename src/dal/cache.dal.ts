@@ -19,6 +19,7 @@ export class LRUCache {
   private cleanupInterval: NodeJS.Timeout | null;
 
   constructor(capacity: number = 1000, ttl: number = 60000) {
+    if (!Number.isInteger(capacity) || capacity < 1 || !Number.isFinite(ttl) || ttl <= 0) throw new Error("Cache capacity and TTL must be positive");
     this.capacity = capacity;
     this.cache = new Map();
     this.head = null;
@@ -31,6 +32,7 @@ export class LRUCache {
     this.cleanupInterval = setInterval(() => {
       this.cleanupStaleEntries();
     }, 10000);
+    this.cleanupInterval.unref();
   }
 
   private createNode(key: string, value: CacheEntry<User>): CacheNode {
@@ -75,7 +77,7 @@ export class LRUCache {
   }
 
   private isExpired(entry: CacheEntry<User>): boolean {
-    return Date.now() - entry.timestamp > entry.ttl;
+    return Date.now() - entry.timestamp >= entry.ttl;
   }
 
   get(key: string): User | null {
@@ -160,7 +162,6 @@ export class LRUCache {
   }
 
   private cleanupStaleEntries(): void {
-    const now = Date.now();
     const keysToDelete: string[] = [];
 
     for (const [key, node] of this.cache.entries()) {

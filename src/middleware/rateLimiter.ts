@@ -1,85 +1,35 @@
 import { Request, Response, NextFunction } from 'express';
 
-interface TokenBucket {
-  tokens: number;
-  lastRefill: number;
-  burstTokens: number;
-  lastBurstRefill: number;
-}
-
-const MAX_REQUESTS_PER_MINUTE = 10;
-const BURST_CAPACITY = 5;
-const BURST_WINDOW_MS = 10000;
-const REFILL_RATE = MAX_REQUESTS_PER_MINUTE / 60;
-
-const buckets = new Map<string, TokenBucket>();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, bucket] of buckets.entries()) {
-    if (now - bucket.lastRefill > 300000) {
-      buckets.delete(ip);
+export function createRateLimiter(now: () => number = Date.now) {
+  const buckets = new Map<string, { tokens: number; updated: number; burst: number; burstStart: number }>();
+  let lastPrune = 0;
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const time = now();
+    if (time - lastPrune >= 60000 || buckets.size >= 10000) {
+      for (const [ip, bucket] of buckets) if (time - bucket.updated >= 300000) buckets.delete(ip);
+      lastPrune = time;
     }
-  }
-}, 60000);
-
-function getBucket(ip: string): TokenBucket {
-  let bucket = buckets.get(ip);
-  if (!bucket) {
-    bucket = {
-      tokens: MAX_REQUESTS_PER_MINUTE,
-      lastRefill: Date.now(),
-      burstTokens: BURST_CAPACITY,
-      lastBurstRefill: Date.now(),
-    };
-    buckets.set(ip, bucket);
-  }
-  return bucket;
+    // Express decides trusted proxies; untrusted forwarding headers cannot select the bucket.
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    let bucket = buckets.get(ip);
+    if (!bucket && buckets.size >= 10000) {
+      res.setHeader('Retry-After', '60');
+      res.status(429).json({ error: 'Rate limiter capacity reached', retryAfter: 60 });
+      return;
+    }
+    if (!bucket) {
+      bucket = { tokens: 10, updated: time, burst: 5, burstStart: time };
+      buckets.set(ip, bucket);
+    }
+    bucket.tokens = Math.min(10, bucket.tokens + Math.max(0, time - bucket.updated) / 6000);
+    bucket.updated = time;
+    if (time - bucket.burstStart >= 10000) { bucket.burst = 5; bucket.burstStart = time; }
+    if (bucket.tokens >= 1 && bucket.burst >= 1) {
+      bucket.tokens--; bucket.burst--; next(); return;
+    }
+    const retryAfter = Math.max(1, Math.ceil(Math.max(bucket.tokens < 1 ? (1 - bucket.tokens) * 6000 : 0, bucket.burst < 1 ? 10000 - (time - bucket.burstStart) : 0) / 1000));
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({ error: 'Rate limit exceeded', retryAfter });
+  };
 }
-
-function refillTokens(bucket: TokenBucket): void {
-  const now = Date.now();
-  const timePassed = (now - bucket.lastRefill) / 1000;
-  const tokensToAdd = timePassed * REFILL_RATE;
-
-  bucket.tokens = Math.min(
-    MAX_REQUESTS_PER_MINUTE,
-    bucket.tokens + tokensToAdd
-  );
-  bucket.lastRefill = now;
-
-  const burstTimePassed = (now - bucket.lastBurstRefill) / 1000;
-  if (burstTimePassed >= BURST_WINDOW_MS / 1000) {
-    bucket.burstTokens = BURST_CAPACITY;
-    bucket.lastBurstRefill = now;
-  }
-}
-
-export function rateLimiter(req: Request, res: Response, next: NextFunction) {
-  const ip =
-    (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-    (req.socket.remoteAddress as string) ||
-    'unknown';
-
-  const bucket = getBucket(ip);
-  refillTokens(bucket);
-
-  if (bucket.burstTokens > 0) {
-    bucket.burstTokens--;
-    next();
-    return;
-  }
-
-  if (bucket.tokens >= 1) {
-    bucket.tokens--;
-    next();
-    return;
-  }
-
-  res.status(429).json({
-    error: 'Rate limit exceeded',
-    message:
-      'Maximum of 10 requests per minute allowed, with a burst of 5 requests in 10 seconds. Please try again later.',
-    retryAfter: Math.ceil((60 - bucket.tokens / REFILL_RATE) / REFILL_RATE),
-  });
-}
+export const rateLimiter = createRateLimiter();

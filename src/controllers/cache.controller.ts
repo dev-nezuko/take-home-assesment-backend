@@ -7,7 +7,7 @@ export function clearCache(_req: unknown, res: Response): void {
     res.json({
       message: 'Cache cleared successfully',
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({
       error: 'Internal server error',
       message: 'An error occurred while clearing the cache',
@@ -19,7 +19,7 @@ export function getCacheStatus(_req: unknown, res: Response): void {
   try {
     const stats = cache.getStats();
     res.json(stats);
-  } catch (error) {
+  } catch {
     res.status(500).json({
       error: 'Internal server error',
       message: 'An error occurred while fetching cache status',
