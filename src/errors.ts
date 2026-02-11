@@ -4,3 +4,13 @@ export class UserNotFoundError extends Error {
     this.name = 'UserNotFoundError';
   }
 }
+
+export class CapacityError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterSeconds: number
+  ) {
+    super(message);
+    this.name = 'CapacityError';
+  }
+}

@@ -1,54 +1,44 @@
 import { QueueItem, User } from '../types/index.js';
 import { mockUsers } from '../data/mockUsers.js';
-import { UserNotFoundError } from '../errors.js';
+import { CapacityError, UserNotFoundError } from '../errors.js';
 
-const DB_DELAY_MS = 200;
-
-class ProcessingQueue {
+export class ProcessingQueue {
   private queue: QueueItem[] = [];
   private processing = false;
 
-  private async processQueue(): Promise<void> {
-    if (this.processing || this.queue.length === 0) {
-      return;
-    }
+  constructor(
+    private readonly maxLength = 100,
+    private readonly delayMs = 200
+  ) {}
 
+  private async processQueue(): Promise<void> {
+    if (this.processing) return;
     this.processing = true;
 
     while (this.queue.length > 0) {
-      const item = this.queue.shift();
-      if (!item) break;
+      const item = this.queue.shift()!;
+      await new Promise((resolve) => setTimeout(resolve, this.delayMs));
 
-      try {
-        await new Promise((resolve) => setTimeout(resolve, DB_DELAY_MS));
-
-        const user = mockUsers[item.userId];
-        if (user) {
-          item.resolve(user);
-        } else {
-          item.reject(new UserNotFoundError(item.userId));
-        }
-      } catch (error) {
-        item.reject(
-          error instanceof Error ? error : new Error('Unknown error occurred')
-        );
+      const user = mockUsers[item.userId];
+      if (user) {
+        item.resolve(user);
+      } else {
+        item.reject(new UserNotFoundError(item.userId));
       }
     }
 
     this.processing = false;
   }
 
-  async enqueue(userId: number): Promise<User> {
+  enqueue(userId: number): Promise<User> {
+    // Each waiting lookup holds a promise and a slot in a serial queue; refuse rather than grow forever.
+    if (this.queue.length >= this.maxLength) {
+      const waitSeconds = Math.ceil((this.queue.length * this.delayMs) / 1000);
+      return Promise.reject(new CapacityError('Lookup queue is full', waitSeconds));
+    }
     return new Promise((resolve, reject) => {
-      this.queue.push({
-        userId,
-        resolve,
-        reject,
-      });
-
-      this.processQueue().catch((error) => {
-        console.error('Queue processing error:', error);
-      });
+      this.queue.push({ userId, resolve, reject });
+      void this.processQueue();
     });
   }
 
