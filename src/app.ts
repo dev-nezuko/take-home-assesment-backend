@@ -23,6 +23,7 @@ export function createApp({
   trustProxy = parseTrustProxy(process.env.TRUST_PROXY),
 }: AppOptions = {}): Express {
   const app = express();
+  app.disable('x-powered-by');
   app.set('trust proxy', trustProxy);
 
   app.use(
