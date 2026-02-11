@@ -1,5 +1,6 @@
 import { QueueItem, User } from '../types/index.js';
 import { mockUsers } from '../data/mockUsers.js';
+import { UserNotFoundError } from '../errors.js';
 
 const DB_DELAY_MS = 200;
 
@@ -25,7 +26,7 @@ class ProcessingQueue {
         if (user) {
           item.resolve(user);
         } else {
-          item.reject(new Error(`User with ID ${item.userId} not found`));
+          item.reject(new UserNotFoundError(item.userId));
         }
       } catch (error) {
         item.reject(
