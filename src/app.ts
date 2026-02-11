@@ -25,7 +25,12 @@ export function createApp({
   const app = express();
   app.set('trust proxy', trustProxy);
 
-  app.use(cors({ origin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000' }));
+  app.use(
+    cors({
+      origin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
+      exposedHeaders: ['X-Cache', 'RateLimit-Policy', 'RateLimit-Limit', 'RateLimit-Remaining', 'Retry-After'],
+    })
+  );
   app.use(express.json({ limit: '16kb' }));
   app.use(express.urlencoded({ extended: true, limit: '16kb' }));
 

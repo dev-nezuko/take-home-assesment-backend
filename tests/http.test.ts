@@ -36,3 +36,12 @@ test('GET /users/:id reports X-Cache and every limited response carries RateLimi
   });
   cache.clear();
 });
+
+test('CORS lets the configured browser origin read the cache and rate-limit headers', async () => {
+  await withServer(createApp({ limiter: createRateLimiter(() => 0) }), async (base) => {
+    const res = await fetch(base + '/cache/status', { headers: { Origin: 'http://localhost:3000' } });
+    assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:3000');
+    const exposed = (res.headers.get('access-control-expose-headers') ?? '').split(',');
+    for (const name of ['X-Cache', 'RateLimit-Remaining', 'Retry-After']) assert.ok(exposed.includes(name), name);
+  });
+});
