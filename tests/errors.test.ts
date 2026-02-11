@@ -9,7 +9,7 @@ test('unknown user IDs are 404 and malformed IDs are 400', async () => {
   await withServer(app, async (base) => {
     const missing = await fetch(base + '/users/424242');
     assert.equal(missing.status, 404);
-    assert.equal((await missing.json()).error, 'User not found');
+    assert.equal(((await missing.json()) as { error: string }).error, 'User not found');
     for (const id of ['0', '-1', '1.5', '1e3', '9007199254740993', '%20']) {
       assert.equal((await fetch(base + '/users/' + id)).status, 400, id);
     }
@@ -34,6 +34,6 @@ test('unknown routes return a JSON 404', async () => {
   await withServer(app, async (base) => {
     const res = await fetch(base + '/nope');
     assert.equal(res.status, 404);
-    assert.equal((await res.json()).error, 'Not found');
+    assert.equal(((await res.json()) as { error: string }).error, 'Not found');
   });
 });

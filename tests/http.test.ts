@@ -13,7 +13,7 @@ test('HTTP validates inputs and exposes real cache hits against synthetic users'
   assert.equal((await fetch(base+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:{},email:[]})})).status,400);
   assert.equal((await fetch(base+'/users/1')).status,200);
   assert.equal((await fetch(base+'/users/1')).status,200);
-  const stats=await (await fetch(base+'/cache/status')).json();assert.equal(stats.hits,1);assert.equal(stats.misses,1);
+  const stats=await (await fetch(base+'/cache/status')).json() as { hits: number; misses: number };assert.equal(stats.hits,1);assert.equal(stats.misses,1);
  } finally {server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
 
