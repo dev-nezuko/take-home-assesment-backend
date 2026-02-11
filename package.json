@@ -2,6 +2,7 @@
   "name": "user-data-api-backend",
   "version": "1.0.0",
   "description": "User Data API with Advanced Caching, Rate Limiting, and Asynchronous Processing",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.13.0 <23"
