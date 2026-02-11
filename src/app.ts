@@ -1,4 +1,10 @@
-import express, { Express, NextFunction, Request, RequestHandler, Response } from 'express';
+import express, {
+  Express,
+  NextFunction,
+  Request,
+  RequestHandler,
+  Response,
+} from 'express';
 import cors from 'cors';
 import { rateLimiter } from './middleware/rateLimiter.js';
 import userRoutes from './routes/user.route.js';
@@ -6,7 +12,9 @@ import cacheRoutes from './routes/cache.route.js';
 
 // TRUST_PROXY: unset/"false" ignores X-Forwarded-For; a hop count ("1") or an address list
 // ("loopback", "10.0.0.0/8") trusts only those proxies. Never "true" on a directly exposed port.
-export function parseTrustProxy(value: string | undefined): boolean | number | string {
+export function parseTrustProxy(
+  value: string | undefined
+): boolean | number | string {
   if (!value || value === 'false') return false;
   if (value === 'true') return true;
   if (/^\d+$/.test(value)) return Number(value);
@@ -29,7 +37,13 @@ export function createApp({
   app.use(
     cors({
       origin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
-      exposedHeaders: ['X-Cache', 'RateLimit-Policy', 'RateLimit-Limit', 'RateLimit-Remaining', 'Retry-After'],
+      exposedHeaders: [
+        'X-Cache',
+        'RateLimit-Policy',
+        'RateLimit-Limit',
+        'RateLimit-Remaining',
+        'Retry-After',
+      ],
     })
   );
   app.use(express.json({ limit: '16kb' }));
@@ -45,7 +59,10 @@ export function createApp({
   app.use('/cache', cacheRoutes);
 
   app.use((req: Request, res: Response) => {
-    res.status(404).json({ error: 'Not found', message: `No route for ${req.method} ${req.path}` });
+    res.status(404).json({
+      error: 'Not found',
+      message: `No route for ${req.method} ${req.path}`,
+    });
   });
 
   // Body-parser errors carry a 4xx `status`; anything else is a bug and must not leak a stack trace.
@@ -56,7 +73,9 @@ export function createApp({
     }
     const status = (err as { status?: unknown }).status;
     if (typeof status === 'number' && status >= 400 && status < 500) {
-      res.status(status).json({ error: 'Bad request', message: (err as Error).message });
+      res
+        .status(status)
+        .json({ error: 'Bad request', message: (err as Error).message });
       return;
     }
     console.error(err);

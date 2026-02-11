@@ -34,7 +34,9 @@ export class ProcessingQueue {
     // Each waiting lookup holds a promise and a slot in a serial queue; refuse rather than grow forever.
     if (this.queue.length >= this.maxLength) {
       const waitSeconds = Math.ceil((this.queue.length * this.delayMs) / 1000);
-      return Promise.reject(new CapacityError('Lookup queue is full', waitSeconds));
+      return Promise.reject(
+        new CapacityError('Lookup queue is full', waitSeconds)
+      );
     }
     return new Promise((resolve, reject) => {
       this.queue.push({ userId, resolve, reject });

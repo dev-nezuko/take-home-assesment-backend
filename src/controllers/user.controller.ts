@@ -73,5 +73,9 @@ export function createUser(req: Request, res: Response): void {
 
 function sendUnavailable(res: Response, error: CapacityError): void {
   res.setHeader('Retry-After', String(error.retryAfterSeconds));
-  res.status(503).json({ error: 'Service busy', message: error.message, retryAfter: error.retryAfterSeconds });
+  res.status(503).json({
+    error: 'Service busy',
+    message: error.message,
+    retryAfter: error.retryAfterSeconds,
+  });
 }

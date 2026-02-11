@@ -1,7 +1,10 @@
 import type { Express } from 'express';
 import type { AddressInfo } from 'node:net';
 
-export async function withServer(app: Express, run: (base: string) => Promise<void>): Promise<void> {
+export async function withServer(
+  app: Express,
+  run: (base: string) => Promise<void>
+): Promise<void> {
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   try {
@@ -12,4 +15,5 @@ export async function withServer(app: Express, run: (base: string) => Promise<vo
   }
 }
 
-export const allowAll = (_req: unknown, _res: unknown, next: () => void) => next();
+export const allowAll = (_req: unknown, _res: unknown, next: () => void) =>
+  next();

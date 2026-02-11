@@ -14,7 +14,9 @@
     "typecheck": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "format": "prettier --write src tests",
+    "format:check": "prettier --check src tests"
   },
   "dependencies": {
     "cors": "^2.8.6",

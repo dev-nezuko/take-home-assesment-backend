@@ -9,7 +9,10 @@ const MAX_TRACKED_CLIENTS = 10000;
 const POLICY = `${TOKEN_CAPACITY};w=${(TOKEN_CAPACITY * TOKEN_REFILL_MS) / 1000}, ${BURST_CAPACITY};w=${BURST_WINDOW_MS / 1000}`;
 // After this long without requests a bucket is full again and its burst window has lapsed,
 // so it is indistinguishable from a new one and can be dropped.
-const IDLE_RESET_MS = Math.max(TOKEN_CAPACITY * TOKEN_REFILL_MS, BURST_WINDOW_MS);
+const IDLE_RESET_MS = Math.max(
+  TOKEN_CAPACITY * TOKEN_REFILL_MS,
+  BURST_WINDOW_MS
+);
 
 interface Bucket {
   tokens: number;
@@ -41,10 +44,17 @@ export function createRateLimiter(now: () => number = Date.now) {
       buckets.delete(key);
     } else if (buckets.size >= MAX_TRACKED_CLIENTS) {
       res.setHeader('Retry-After', '60');
-      res.status(429).json({ error: 'Rate limiter capacity reached', retryAfter: 60 });
+      res
+        .status(429)
+        .json({ error: 'Rate limiter capacity reached', retryAfter: 60 });
       return;
     } else {
-      bucket = { tokens: TOKEN_CAPACITY, updated: time, burst: BURST_CAPACITY, burstStart: time };
+      bucket = {
+        tokens: TOKEN_CAPACITY,
+        updated: time,
+        burst: BURST_CAPACITY,
+        burstStart: time,
+      };
     }
     buckets.set(key, bucket);
 
@@ -63,17 +73,25 @@ export function createRateLimiter(now: () => number = Date.now) {
     if (bucket.tokens >= 1 && bucket.burst >= 1) {
       bucket.tokens--;
       bucket.burst--;
-      res.setHeader('RateLimit-Remaining', String(Math.floor(Math.min(bucket.tokens, bucket.burst))));
+      res.setHeader(
+        'RateLimit-Remaining',
+        String(Math.floor(Math.min(bucket.tokens, bucket.burst)))
+      );
       next();
       return;
     }
 
     res.setHeader('RateLimit-Remaining', '0');
 
-    const tokenWait = bucket.tokens < 1 ? (1 - bucket.tokens) * TOKEN_REFILL_MS : 0;
-    const burstWait = bucket.burst < 1 ? BURST_WINDOW_MS - (time - bucket.burstStart) : 0;
+    const tokenWait =
+      bucket.tokens < 1 ? (1 - bucket.tokens) * TOKEN_REFILL_MS : 0;
+    const burstWait =
+      bucket.burst < 1 ? BURST_WINDOW_MS - (time - bucket.burstStart) : 0;
     // Round to whole milliseconds first so float drift (4000.0000001 ms) doesn't add a second.
-    const retryAfter = Math.max(1, Math.ceil(Math.round(Math.max(tokenWait, burstWait)) / 1000));
+    const retryAfter = Math.max(
+      1,
+      Math.ceil(Math.round(Math.max(tokenWait, burstWait)) / 1000)
+    );
     res.setHeader('Retry-After', String(retryAfter));
     res.status(429).json({ error: 'Rate limit exceeded', retryAfter });
   };

@@ -10,9 +10,17 @@ test('the lookup queue refuses work beyond its bound and still drains what it ac
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
     const queue = new ProcessingQueue(2, 200);
-    const accepted = [queue.enqueue(1), queue.enqueue(2), queue.enqueue(424242)];
+    const accepted = [
+      queue.enqueue(1),
+      queue.enqueue(2),
+      queue.enqueue(424242),
+    ];
     assert.equal(queue.getQueueLength(), 2);
-    await assert.rejects(queue.enqueue(3), (err: unknown) => err instanceof CapacityError && err.retryAfterSeconds === 1);
+    await assert.rejects(
+      queue.enqueue(3),
+      (err: unknown) =>
+        err instanceof CapacityError && err.retryAfterSeconds === 1
+    );
     assert.equal(queue.getQueueLength(), 2);
 
     const settled = Promise.allSettled(accepted);
@@ -23,7 +31,10 @@ test('the lookup queue refuses work beyond its bound and still drains what it ac
     const [one, two, missing] = await settled;
     assert.equal(one.status === 'fulfilled' && one.value.id, 1);
     assert.equal(two.status === 'fulfilled' && two.value.id, 2);
-    assert.ok(missing.status === 'rejected' && missing.reason instanceof UserNotFoundError);
+    assert.ok(
+      missing.status === 'rejected' &&
+        missing.reason instanceof UserNotFoundError
+    );
     assert.equal(queue.getQueueLength(), 0);
   } finally {
     mock.timers.reset();
@@ -35,8 +46,12 @@ test('created users get sequential IDs and the store stops at MAX_USERS with a 5
   const second = addUser('Seq Two', 'two@example.com');
   assert.equal(second.id, first.id + 1);
 
-  while (Object.keys(mockUsers).length < MAX_USERS) addUser('Filler', 'filler@example.com');
-  assert.throws(() => addUser('Overflow', 'overflow@example.com'), CapacityError);
+  while (Object.keys(mockUsers).length < MAX_USERS)
+    addUser('Filler', 'filler@example.com');
+  assert.throws(
+    () => addUser('Overflow', 'overflow@example.com'),
+    CapacityError
+  );
   assert.equal(Object.keys(mockUsers).length, MAX_USERS);
 
   await withServer(createApp({ limiter: allowAll }), async (base) => {

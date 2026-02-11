@@ -20,7 +20,13 @@ export class LRUCache {
   private clearCount = 0;
 
   constructor(capacity: number = 1000, ttl: number = 60000) {
-    if (!Number.isInteger(capacity) || capacity < 1 || !Number.isFinite(ttl) || ttl <= 0) throw new Error("Cache capacity and TTL must be positive");
+    if (
+      !Number.isInteger(capacity) ||
+      capacity < 1 ||
+      !Number.isFinite(ttl) ||
+      ttl <= 0
+    )
+      throw new Error('Cache capacity and TTL must be positive');
     this.capacity = capacity;
     this.cache = new Map();
     this.head = null;
