@@ -17,11 +17,13 @@ export async function getOrFetchUser(userId: number): Promise<User> {
 
   const requestPromise = (async () => {
     try {
+      const generation = cache.generation;
       const startTime = Date.now();
       const user = await processingQueue.enqueue(userId);
-      const responseTime = Date.now() - startTime;
 
-      cache.set(`user:${userId}`, user, responseTime);
+      if (cache.generation === generation) {
+        cache.set(`user:${userId}`, user, Date.now() - startTime);
+      }
 
       return user;
     } finally {

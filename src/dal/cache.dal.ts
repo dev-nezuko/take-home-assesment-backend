@@ -17,6 +17,7 @@ export class LRUCache {
   private misses: number;
   private responseTimes: number[];
   private cleanupInterval: NodeJS.Timeout | null;
+  private clearCount = 0;
 
   constructor(capacity: number = 1000, ttl: number = 60000) {
     if (!Number.isInteger(capacity) || capacity < 1 || !Number.isFinite(ttl) || ttl <= 0) throw new Error("Cache capacity and TTL must be positive");
@@ -152,7 +153,13 @@ export class LRUCache {
     return false;
   }
 
+  // Lets in-flight fills detect that the cache was cleared after they started.
+  get generation(): number {
+    return this.clearCount;
+  }
+
   clear(): void {
+    this.clearCount++;
     this.cache.clear();
     this.head = null;
     this.tail = null;
